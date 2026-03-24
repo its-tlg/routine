@@ -275,8 +275,14 @@ document.getElementById('googlebtn').onclick = () => {
 }
 
 // Auth state listener
+const ALLOWED_EMAIL = 'yashzn@gmail.com'
 auth.onAuthStateChanged(user => {
   if(user) {
+    if(user.email !== ALLOWED_EMAIL) {
+      auth.signOut()
+      document.getElementById('autherr').textContent = 'Access denied — this app is private.'
+      return
+    }
     dbRef = db.ref('users/' + user.uid + '/data')
     document.getElementById('sync-screen').style.display = 'none'
     document.getElementById('app').classList.add('vis')
