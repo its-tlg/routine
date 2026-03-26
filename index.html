@@ -98,8 +98,12 @@ button,input{font-family:'Outfit',sans-serif}
 .ideal-panel-lbl{flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:linear-gradient(180deg,rgba(124,58,237,.08),rgba(124,58,237,.04));position:sticky;left:0;z-index:10;border-right:1px solid rgba(124,58,237,.2)}
 .ideal-panel-grid{position:relative;flex-shrink:0;background:rgba(124,58,237,.03)}
 
-.rh{position:absolute;right:0;top:0;bottom:0;width:10px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;touch-action:none}
-.rh::after{content:'';width:2px;height:12px;border-radius:2px;background:rgba(255,255,255,.25)}
+.rh{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;touch-action:none;opacity:0;transition:opacity .15s}
+.rh.rh-right{right:0}.rh.rh-left{left:0}
+.rh::after{content:'';width:2.5px;height:14px;border-radius:2px;background:currentColor;opacity:.5;transition:opacity .15s,height .15s}
+.block:hover .rh{opacity:.5}
+.block:hover .rh:hover{opacity:1}
+.block:hover .rh:hover::after{height:22px;opacity:.8}
 .ghost{position:absolute;border-radius:9px;display:flex;align-items:center;padding:0 6px;border:2px dashed;opacity:.35;pointer-events:none;overflow:hidden}
 .ghost.ctrl-ghost{opacity:.7;pointer-events:auto;cursor:pointer;border-style:solid;transition:opacity .15s,transform .15s}
 .ghost.ctrl-ghost:hover{opacity:1;transform:scaleY(1.04)}
@@ -148,7 +152,7 @@ button,input{font-family:'Outfit',sans-serif}
 <body>
 <div id="sync-screen">
   <div class="scard">
-    <div style="font-size:32px;margin-bottom:4px">⏱</div>
+    <div id="testentry" style="font-size:32px;margin-bottom:4px;cursor:default;user-select:none">⏱</div>
     <div class="stit">Routine Builder</div>
     <div class="ssub">Sign in to sync your routine across all devices in real-time</div>
     <div class="serr" id="autherr"></div>
@@ -157,6 +161,30 @@ button,input{font-family:'Outfit',sans-serif}
       Sign in with Google
     </button>
     <div style="font-size:9px;color:var(--mt);margin-top:14px;line-height:1.5">Your data is private — only you can access it.<br>Works on PC, phone, and tablet.</div>
+    <script>
+    // Must be defined before the button below so inline onclick works
+    function enterTestMode(){
+      // Defer until main script has finished parsing
+      setTimeout(function(){
+        if(window._testMode)return
+        window._testMode=true
+        if(typeof dbRef!=='undefined')dbRef=null
+        document.getElementById('sync-screen').style.display='none'
+        document.getElementById('app').classList.add('vis')
+        var cp=document.getElementById('cpill')
+        if(cp){cp.style.display='';cp.textContent='🧪 Test Mode (local)'}
+        if(typeof storeLoadLocal==='function'){
+          var cached=storeLoadLocal()
+          if(cached&&cached.blocks)S.blocks=cached.blocks
+          if(cached&&cached.ccats)S.ccats=cached.ccats
+          if(cached&&cached.ideal)S.ideal=cached.ideal
+        }
+        if(typeof initUI==='function')initUI()
+        if(typeof render==='function')render()
+      },0)
+    }
+    </script>
+    <button class="sbtn" id="testbtn" style="margin-top:10px;background:var(--inp);color:var(--mt);font-weight:500;font-size:11px" onclick="enterTestMode()">🧪 Test Mode (no sync)</button>
   </div>
 </div>
 <div id="app">
@@ -179,7 +207,7 @@ button,input{font-family:'Outfit',sans-serif}
     <button class="xb" id="idealbtn">🧪 Ideal</button>
     <div class="tsp"></div>
     <button class="xb" id="undobtn" disabled title="Undo last change (Ctrl+Z)">↩ Undo</button>
-    <button class="xb" id="clearbtn">Clear</button>
+    <button class="xb" id="redobtn" disabled title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
     <button class="xb" id="signoutbtn" title="Sign out">👤 Sign out</button>
   </div>
   <div class="ds" id="ds"><span class="dsl">Editing:</span></div>
@@ -245,24 +273,33 @@ button,input{font-family:'Outfit',sans-serif}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-// ── Firebase setup
-const firebaseConfig = {
-  apiKey: "AIzaSyC1_E1W3RJN6j2dw8HYS0p5kCygjhTLo1Y",
-  authDomain: "routinecal-5a3f9.firebaseapp.com",
-  databaseURL: "https://routinecal-5a3f9-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "routinecal-5a3f9",
-  storageBucket: "routinecal-5a3f9.firebasestorage.app",
-  messagingSenderId: "516322383492",
-  appId: "1:516322383492:web:a04d8111e01bc5bb3e94d1"
+// ── Firebase setup (skip if CDN didn't load — e.g. in sandbox)
+var auth = null, db = null
+if(typeof firebase !== 'undefined'){
+  const firebaseConfig = {
+    apiKey: "AIzaSyC1_E1W3RJN6j2dw8HYS0p5kCygjhTLo1Y",
+    authDomain: "routinecal-5a3f9.firebaseapp.com",
+    databaseURL: "https://routinecal-5a3f9-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "routinecal-5a3f9",
+    storageBucket: "routinecal-5a3f9.firebasestorage.app",
+    messagingSenderId: "516322383492",
+    appId: "1:516322383492:web:a04d8111e01bc5bb3e94d1"
+  }
+  firebase.initializeApp(firebaseConfig)
+  auth = firebase.auth()
+  db = firebase.database()
+} else {
+  // No Firebase — auto-enter test mode
+  console.warn('Firebase not available — entering test mode')
+  setTimeout(()=>{ if(typeof enterTestMode==='function') enterTestMode() }, 100)
 }
-firebase.initializeApp(firebaseConfig)
-const auth = firebase.auth()
-const db = firebase.database()
-let dbRef = null  // set after auth: users/{uid}/data
-let ignoreNextSnapshot = false  // prevent echo when we write
+var dbRef = null  // set after auth: users/{uid}/data
+var ignoreNextSnapshot = false  // prevent echo when we write
+var testMode = false
 
 // Google sign-in
 document.getElementById('googlebtn').onclick = () => {
+  if(!auth) return
   const provider = new firebase.auth.GoogleAuthProvider()
   auth.signInWithPopup(provider).catch(e => {
     // Fallback to redirect for mobile / popup-blocked
@@ -276,23 +313,26 @@ document.getElementById('googlebtn').onclick = () => {
 
 // Auth state listener
 const ALLOWED_EMAIL = 'yashzn@gmail.com'
-auth.onAuthStateChanged(user => {
-  if(user) {
-    if(user.email !== ALLOWED_EMAIL) {
-      auth.signOut()
-      document.getElementById('autherr').textContent = 'Access denied — this app is private.'
-      return
+if(auth){
+  auth.onAuthStateChanged(user => {
+    if(window._testMode)return  // don't interfere with test mode
+    if(user) {
+      if(user.email !== ALLOWED_EMAIL) {
+        auth.signOut()
+        document.getElementById('autherr').textContent = 'Access denied — this app is private.'
+        return
+      }
+      dbRef = db.ref('users/' + user.uid + '/data')
+      document.getElementById('sync-screen').style.display = 'none'
+      document.getElementById('app').classList.add('vis')
+      loadAndStart()
+    } else {
+      document.getElementById('sync-screen').style.display = ''
+      document.getElementById('app').classList.remove('vis')
+      dbRef = null
     }
-    dbRef = db.ref('users/' + user.uid + '/data')
-    document.getElementById('sync-screen').style.display = 'none'
-    document.getElementById('app').classList.add('vis')
-    loadAndStart()
-  } else {
-    document.getElementById('sync-screen').style.display = ''
-    document.getElementById('app').classList.remove('vis')
-    dbRef = null
-  }
-})
+  })
+}
 
 // ── Storage: Firebase Realtime Database with localStorage cache
 function storeSave(data) {
@@ -378,10 +418,33 @@ const todayIdx=(new Date().getDay()+6)%7
 const todayDateStr=localDateStr(new Date())
 const isDark=()=>window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches
 
-let S={blocks:[],ccats:{},ideal:REC.map((b,i)=>({...b,id:`id-${i}`})),zoom:1,showRec:false,showRecT:false,showIdealPanel:false,editDay:DAYS[todayIdx],armed:null,debug:false,weekOffset:0}
-let nowH=(()=>{const d=new Date();return d.getHours()+d.getMinutes()/60})()
-let saveTimer=null,cd=0,editingId=null,editCatKey=null,catColor=PCOLS[0],scrolled=false,resetScrollNext=false
-let ctrlDown=false,shiftDown=false
+// Time-of-day ruler cell colors
+function timeColor(h){
+  const dk=isDark()
+  // Night: 0-5 (deep blue/purple with stars effect via gradient)
+  if(h<=4) return dk?`linear-gradient(180deg,rgba(15,10,40,.9),rgba(20,15,50,.9))`:`linear-gradient(180deg,rgba(30,25,80,.12),rgba(40,30,90,.08))`
+  if(h===5) return dk?`linear-gradient(180deg,rgba(40,20,70,.7),rgba(60,30,80,.5))`:`linear-gradient(180deg,rgba(80,40,120,.08),rgba(120,60,140,.05))`
+  // Dawn: 6-7 (warm pink/orange)
+  if(h===6) return dk?`linear-gradient(180deg,rgba(180,80,40,.2),rgba(140,50,60,.15))`:`linear-gradient(180deg,rgba(255,140,80,.12),rgba(255,100,60,.08))`
+  if(h===7) return dk?`linear-gradient(180deg,rgba(200,120,40,.18),rgba(180,90,30,.12))`:`linear-gradient(180deg,rgba(255,180,80,.12),rgba(255,150,50,.08))`
+  // Morning: 8-11 (bright warm yellow)
+  if(h>=8&&h<=11) return dk?`linear-gradient(180deg,rgba(200,170,40,.1),rgba(180,150,30,.06))`:`linear-gradient(180deg,rgba(255,230,100,.12),rgba(255,220,80,.07))`
+  // Midday: 12-14 (bright, full sun)
+  if(h>=12&&h<=14) return dk?`linear-gradient(180deg,rgba(220,190,50,.12),rgba(200,170,40,.07))`:`linear-gradient(180deg,rgba(255,240,140,.15),rgba(255,235,120,.1))`
+  // Afternoon: 15-17 (warm, golden)
+  if(h>=15&&h<=17) return dk?`linear-gradient(180deg,rgba(200,150,30,.1),rgba(180,120,20,.06))`:`linear-gradient(180deg,rgba(255,200,80,.1),rgba(255,180,60,.06))`
+  // Evening: 18-19 (sunset orange/pink)
+  if(h===18||h===19) return dk?`linear-gradient(180deg,rgba(180,70,30,.18),rgba(140,40,50,.12))`:`linear-gradient(180deg,rgba(255,120,60,.1),rgba(255,90,80,.06))`
+  // Dusk: 20 (purple)
+  if(h===20) return dk?`linear-gradient(180deg,rgba(80,30,100,.2),rgba(50,20,80,.15))`:`linear-gradient(180deg,rgba(120,50,140,.08),rgba(80,30,120,.05))`
+  // Night: 21+ (deep blue)
+  return dk?`linear-gradient(180deg,rgba(20,15,55,.8),rgba(15,10,45,.7))`:`linear-gradient(180deg,rgba(30,20,70,.1),rgba(25,15,60,.06))`
+}
+
+var S={blocks:[],ccats:{},ideal:REC.map((b,i)=>({...b,id:`id-${i}`})),zoom:1,showRec:false,showRecT:false,showIdealPanel:false,editDay:DAYS[todayIdx],armed:null,debug:false,weekOffset:0}
+var nowH=(()=>{const d=new Date();return d.getHours()+d.getMinutes()/60})()
+var saveTimer=null,cd=0,editingId=null,editCatKey=null,catColor=PCOLS[0],scrolled=false,resetScrollNext=false
+var ctrlDown=false,shiftDown=false
 
 const cats=()=>({...DCATS,...S.ccats}),hw=()=>BHW*S.zoom
 
@@ -394,7 +457,8 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Control'||e.key==='Meta'){ctrlDown=true;renderLeg();render()}
   if(e.key==='Shift')shiftDown=true
   if(e.key==='Escape'){S.armed=null;ctrlDown=false;renderLeg();closePicker();closeEdit();render()}
-  if((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)){e.preventDefault();doUndo()}
+  if((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)&&!e.shiftKey){e.preventDefault();doUndo()}
+  if(((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)&&e.shiftKey)||(e.key==='y'&&(e.ctrlKey||e.metaKey))){e.preventDefault();doRedo()}
 })
 window.addEventListener('keyup',e=>{
   if(e.key==='Control'||e.key==='Meta'){ctrlDown=false;renderLeg();render()}
@@ -499,18 +563,33 @@ function pushBlocks(movedId,newStart,newDur,dayIdx,originalStart){
 
 // ── Undo system (max 30 steps)
 const MAX_UNDO = 30
-let undoStack = []
-let undoing = false
+var undoStack = []
+var redoStack = []
+var undoing = false
 function pushUndo(){
   if(undoing) return
   undoStack.push({blocks:JSON.parse(JSON.stringify(S.blocks)),ideal:JSON.parse(JSON.stringify(S.ideal))})
   if(undoStack.length > MAX_UNDO) undoStack.shift()
+  redoStack = []  // clear redo on new action
   updateUndoBtn()
 }
 function doUndo(){
   if(!undoStack.length) return
   undoing = true
+  // Save current state to redo stack
+  redoStack.push({blocks:JSON.parse(JSON.stringify(S.blocks)),ideal:JSON.parse(JSON.stringify(S.ideal))})
   const snap = undoStack.pop()
+  S.blocks = snap.blocks
+  S.ideal = snap.ideal
+  save(); render(); updateUndoBtn()
+  undoing = false
+}
+function doRedo(){
+  if(!redoStack.length) return
+  undoing = true
+  // Save current state to undo stack
+  undoStack.push({blocks:JSON.parse(JSON.stringify(S.blocks)),ideal:JSON.parse(JSON.stringify(S.ideal))})
+  const snap = redoStack.pop()
   S.blocks = snap.blocks
   S.ideal = snap.ideal
   save(); render(); updateUndoBtn()
@@ -519,6 +598,8 @@ function doUndo(){
 function updateUndoBtn(){
   const b = document.getElementById('undobtn')
   if(b) b.disabled = undoStack.length === 0
+  const r = document.getElementById('redobtn')
+  if(r) r.disabled = redoStack.length === 0
 }
 
 // ── UI init
@@ -535,11 +616,7 @@ function initUI(){
   }
   document.getElementById('idealbtn').onclick=()=>{S.debug=!S.debug;document.getElementById('idealbtn').classList.toggle('on',S.debug);render()}
   document.getElementById('undobtn').onclick=doUndo
-  document.getElementById('clearbtn').onclick=()=>{
-    const wk=currentWeekKey()
-    const count=S.blocks.filter(b=>(b.weekOf||getWeekKey(0))===wk).length
-    if(count&&confirm('Clear all blocks for this week?')){S.blocks=S.blocks.filter(b=>(b.weekOf||getWeekKey(0))!==wk);save();render()}
-  }
+  document.getElementById('redobtn').onclick=doRedo
   document.getElementById('signoutbtn').onclick=()=>{
     if(confirm('Sign out?')){
       if(dbRef) dbRef.off()
@@ -577,12 +654,14 @@ function initUI(){
   // Editable time inputs
   document.getElementById('stval').onchange=e=>{
     const v=parseTime(e.target.value);if(v===null){updET(S.blocks.find(b=>b.id===editingId));return}
+    pushUndo()
     S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,startHour:clamp(snp5(v),0,24-b.duration)})
     save();updET(S.blocks.find(b=>b.id===editingId));render()
   }
   document.getElementById('endval').onchange=e=>{
     const bl=S.blocks.find(b=>b.id===editingId);if(!bl)return
     const v=parseTime(e.target.value);if(v===null){updET(bl);return}
+    pushUndo()
     const dur=clamp(snp5(v-bl.startHour),.0833,24-bl.startHour)
     S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,duration:dur})
     save();updET(S.blocks.find(b=>b.id===editingId));render()
@@ -614,7 +693,47 @@ function renderLeg(){
   Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
     const armed=S.armed===name,c=document.createElement('div');c.className='lc'+(armed?' armed':'')
     c.style.borderColor=rgba(color,armed?1:.5);c.style.color=armed?'#fff':color;c.style.background=armed?color:rgba(color,.08)
-    c.innerHTML=`${emoji} ${name}`;c.onclick=()=>{S.armed=armed?null:name;renderLeg()}
+    c.innerHTML=`${emoji} ${name}`
+    // Click to arm
+    c.onclick=()=>{S.armed=armed?null:name;renderLeg()}
+    // Drag to place on timeline
+    c.style.cursor='grab';c.style.touchAction='none'
+    c.addEventListener('pointerdown',pe=>{
+      if(pe.button!==0)return
+      pe.preventDefault()
+      const sx=pe.clientX,sy=pe.clientY
+      let dragging=false,ghost=null
+      function onM(me){
+        if(!dragging&&Math.hypot(me.clientX-sx,me.clientY-sy)<6)return
+        if(!dragging){
+          dragging=true
+          ghost=document.createElement('div')
+          ghost.style.cssText=`position:fixed;z-index:9999;pointer-events:none;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;border:2px solid ${color};background:${rgba(color,.2)};color:${color};white-space:nowrap;transform:translate(-50%,-50%)`
+          ghost.textContent=`${emoji} ${name}`
+          document.body.appendChild(ghost)
+        }
+        if(ghost){ghost.style.left=me.clientX+'px';ghost.style.top=me.clientY+'px'}
+      }
+      function onU(ue){
+        window.removeEventListener('pointermove',onM)
+        window.removeEventListener('pointerup',onU)
+        if(ghost){ghost.remove()}
+        if(!dragging)return
+        // Check if dropped on grid
+        const gw=document.getElementById('gw')
+        const gr=gw.getBoundingClientRect()
+        if(ue.clientX>=gr.left&&ue.clientX<=gr.right&&ue.clientY>=gr.top&&ue.clientY<=gr.bottom){
+          const sh=clamp(snp(getHX(ue.clientX)),0,23)
+          const di=getDI(ue.clientY)
+          const date=weekDates()[di]
+          pushUndo()
+          S.blocks.push({id:uid(),day:DAYS[di],weekOf:date,startHour:sh,duration:1,category:name})
+          save();playAddSound();render()
+        }
+      }
+      window.addEventListener('pointermove',onM)
+      window.addEventListener('pointerup',onU)
+    })
     frag.appendChild(c)
   })
   // Insert fragment right after the lh label
@@ -642,6 +761,7 @@ function renderGrid(){
   const rp=document.createElement('div');rp.className='rp';rp.style.width=LW+'px';ruler.appendChild(rp)
   for(let h=0;h<TOTAL;h++){
     const rc=document.createElement('div');rc.className='rc';rc.style.width=H+'px'
+    rc.style.background=timeColor(h)
     rc.textContent=h===0?'12am':h<12?`${h}am`:h===12?'12pm':`${h-12}pm`;ruler.appendChild(rc)
   }
   // Ruler = scroll zone for both axes (drag vertically or horizontally)
@@ -709,8 +829,8 @@ function renderGrid(){
     const rowBg=isToday?(isDark()?'rgba(124,58,237,.08)':'rgba(124,58,237,.055)'):
                   isEditDay?(isDark()?'rgba(34,197,94,.06)':'rgba(34,197,94,.04)'):
                   (di%2===1?'var(--alt)':'var(--bg)')
-    const rowBorderLeft=isToday?`3px solid ${rgba('#7C3AED',.28)}`:isEditDay?`3px solid ${rgba(EDIT_COLOR,.35)}`:''
-    row.style.cssText=`width:${H*TOTAL}px;height:${rh}px;cursor:${isActive?'crosshair':'grab'};background:${rowBg};${rowBorderLeft?`border-left:${rowBorderLeft}`:''}`
+    const rowBorderLeft=isToday?`box-shadow:inset 3px 0 0 ${rgba('#7C3AED',.28)}`:isEditDay?`box-shadow:inset 3px 0 0 ${rgba(EDIT_COLOR,.35)}`:''
+    row.style.cssText=`width:${H*TOTAL}px;height:${rh}px;cursor:${isActive?'crosshair':'grab'};background:${rowBg};${rowBorderLeft}`
 
     for(let h=0;h<=TOTAL;h++){const v=document.createElement('div');v.className='vl';v.style.cssText=`left:${h*H}px;background:var(--grid)`;row.appendChild(v)}
     for(let h=0;h<TOTAL;h++){const v=document.createElement('div');v.className='vl';v.style.cssText=`left:${(h+.5)*H}px;background:var(--half)`;row.appendChild(v)}
@@ -902,20 +1022,18 @@ function mkBlock(bl,bT,bB,H,isIdeal,di,date){
   const c=cats()[bl.category]||{emoji:'?',color:'#888'},bw=bl.duration*H,dk=isDark()
   const el=document.createElement('div');el.className='block';el.dataset.block='true';el.dataset.id=bl.id
   el.style.cssText=`left:${bl.startHour*H}px;width:${Math.max(bw,26)}px;top:${bT}px;bottom:${bB}px;background:${rgba(c.color,dk?.28:.18)};border-color:${rgba(c.color,dk?.7:.45)};color:${c.color}${isIdeal?`;box-shadow:0 0 0 1px ${rgba('#F59E0B',.2)}`:''}`
-  // Block height available for content
-  const blockH = (bB===undefined?5:bB) // fallback
-  const availH = Math.max(1, (isNaN(bT)?5:bT) + (isNaN(bB)?5:bB)) // not used directly
-  // Scale font based on width: narrow blocks get smaller text
-  const nameFontSize = bw >= 90 ? 9 : bw >= 60 ? 8 : bw >= 40 ? 7 : 6.5
-  const timeFontSize = Math.max(6, nameFontSize - 1.5)
+  // Scale font based on width — much bigger on PC
+  const isPC=window.innerWidth>640
+  const nameFontSize = isPC ? (bw>=120?15:bw>=80?13:bw>=50?11:9) : (bw>=90?11:bw>=60?9.5:bw>=40?8:7)
+  const timeFontSize = Math.max(7, nameFontSize - 2.5)
+  const emojiFontSize = isPC ? (bw<30?11:15) : (bw<30?9:11)
   const be=document.createElement('span');be.className='be'
-  be.style.cssText=`font-size:${bw<30?9:11}px;flex-shrink:0;line-height:1`
+  be.style.cssText=`font-size:${emojiFontSize}px;flex-shrink:0;line-height:1`
   be.textContent=c.emoji;el.appendChild(be)
   if(bw>=28){
     const wrap=document.createElement('span');wrap.className='bl'
     wrap.style.cssText=`display:flex;flex-direction:column;gap:0px;overflow:hidden;min-width:0`
     const nameEl=document.createElement('span')
-    // Fit text: scale font size to fit width, allow wrapping for narrow blocks
     nameEl.style.cssText=`font-size:${nameFontSize}px;font-weight:700;line-height:1.15;word-break:break-word;overflow-wrap:break-word;white-space:normal;max-width:100%`
     nameEl.textContent=bl.category
     wrap.appendChild(nameEl)
@@ -927,12 +1045,14 @@ function mkBlock(bl,bT,bB,H,isIdeal,di,date){
     }
     el.appendChild(wrap)
   }
-  // No X button on blocks - deletion only via edit popup
-  const rh=document.createElement('div');rh.className='rh';rh.dataset.resize='true';rh.onpointerdown=e=>startResize(e,bl.id,isIdeal,di,date);el.appendChild(rh)
+  // Left resize handle (only on wider blocks so narrow ones stay draggable)
+  if(bw>=50){const lh=document.createElement('div');lh.className='rh rh-left';lh.dataset.resize='true';lh.onpointerdown=e=>startResizeLeft(e,bl.id,isIdeal,di,date);el.appendChild(lh)}
+  // Right resize handle
+  const rh=document.createElement('div');rh.className='rh rh-right';rh.dataset.resize='true';rh.onpointerdown=e=>startResize(e,bl.id,isIdeal,di,date);el.appendChild(rh)
   if(!isIdeal){const mo=mealOff(bl);if(mo&&bw>=52){const m=document.createElement('div');m.className='mo';const late=mo.startsWith('+');m.style.cssText=`color:${late?'#EF4444':'#22C55E'};background:${late?rgba('#EF4444',.15):rgba('#22C55E',.15)}`;m.textContent=mo;el.appendChild(m)}}
   el.addEventListener('pointerdown',e=>{
-    if(e.target===rh||rh.contains(e.target))return
-    // If a category is armed, tapping any block stacks a new block on top of it
+    if(e.target.closest('.rh'))return
+    if(e.button===1)return
     if(S.armed&&!isIdeal){
       e.stopPropagation();e.preventDefault()
       pushUndo();S.blocks.push({id:uid(),day:bl.day,weekOf:bl.weekOf||getWeekKey(0),startHour:bl.startHour,duration:bl.duration,category:S.armed})
@@ -945,49 +1065,62 @@ function mkBlock(bl,bT,bB,H,isIdeal,di,date){
     let dragging=false
     let dragUnlocked=false
     let holdTimer=null
+    const isMouse=e.pointerType==='mouse'
+    const offsetH=getHX(sx)-bl.startHour  // click offset within block
 
-    // After 1s hold, unlock dragging with visual + haptic feedback
-    holdTimer=setTimeout(()=>{
+    if(isMouse){
       dragUnlocked=true
-      el.classList.add('drag-ready')
-      // Vibration on supported devices
-      if(navigator.vibrate)navigator.vibrate(40)
-      setTimeout(()=>el.classList.remove('drag-ready'),500)
-    },500)
+    }else{
+      holdTimer=setTimeout(()=>{
+        dragUnlocked=true
+        el.classList.add('drag-ready')
+        if(navigator.vibrate)navigator.vibrate(40)
+        setTimeout(()=>el.classList.remove('drag-ready'),500)
+      },400)
+    }
 
     function onMove(me){
-      if(!dragUnlocked)return  // ignore movement until hold completes
+      if(!dragUnlocked)return
       const dx=me.clientX-sx,dy=me.clientY-sy
       if(!dragging){
         if(Math.abs(dx)<4&&Math.abs(dy)<4)return
         dragging=true
+        pushUndo()
         el.style.opacity='0.78'
         el.style.zIndex='100'
         el.style.transform='scale(1.02)'
         el.style.transition='none'
       }
-      const nh=clamp(snp(getHX(me.clientX)-(getHX(sx)-bl.startHour)),0,24-bl.duration)
+      const nh=clamp(snp(getHX(me.clientX)-offsetH),0,24-bl.duration)
+      // Update data model without re-rendering
       if(isIdeal){
-        S.ideal=S.ideal.map(b=>b.id!==bl.id?b:{...b,startHour:nh})
+        const b=S.ideal.find(b=>b.id===bl.id);if(b)b.startHour=nh
       }else{
-        const newDi=getDI(me.clientY),newDate=weekDates()[newDi]
-        S.blocks=S.blocks.map(b=>b.id!==bl.id?b:{...b,startHour:nh,day:DAYS[newDi],weekOf:newDate})
-        if(me.shiftKey)pushBlocks(bl.id,nh,bl.duration,newDi,origStart)
+        const b=S.blocks.find(b=>b.id===bl.id)
+        if(b){
+          const newDi=getDI(me.clientY),newDate=weekDates()[newDi]
+          b.startHour=nh;b.day=DAYS[newDi];b.weekOf=newDate
+          if(me.shiftKey)pushBlocks(bl.id,nh,bl.duration,newDi,origStart)
+        }
       }
-      render();showDL(0,0,`${fmt(nh)} [${Math.round(bl.duration*60)}m]`,{startHour:nh,duration:bl.duration,day:isIdeal?DAYS[todayIdx]:DAYS[getDI(me.clientY)]})
+      // Move element directly — no render()
+      el.style.left=nh*H+'px'
+      showDL(0,0,`${fmt(nh)} [${Math.round(bl.duration*60)}m]`,{startHour:nh,duration:bl.duration,day:isIdeal?DAYS[todayIdx]:DAYS[getDI(me.clientY)]})
     }
 
     function onUp(ue){
       clearTimeout(holdTimer)
-      el.releasePointerCapture(ue.pointerId)
+      try{el.releasePointerCapture(ue.pointerId)}catch{}
       el.removeEventListener('pointermove',onMove)
       el.removeEventListener('pointerup',onUp)
       el.style.opacity='';el.style.zIndex='';el.style.transform='';el.style.transition=''
       el.classList.remove('drag-ready')
       hideDL()
-      if(dragging){pushUndo();save()}
-      else if(!isIdeal){
-        // Tap (no drag) — open edit popup
+      if(dragging){save();render()}
+      else if(isIdeal){
+        const rect=el.getBoundingClientRect()
+        openIdealEdit(bl.id,rect.left+rect.width/2,rect.top)
+      }else{
         const rect=el.getBoundingClientRect()
         openEdit(bl.id,rect.left+rect.width/2,rect.top)
       }
@@ -1041,26 +1174,114 @@ function hideDL(){document.getElementById('drag-lbl').style.display='none'}
 function startResize(e,id,isIdeal,di,date){
   e.stopPropagation();e.preventDefault()
   const arr=isIdeal?S.ideal:S.blocks;const bl=arr.find(b=>b.id===id);if(!bl)return
-  const rh=e.currentTarget
+  pushUndo()  // capture state before any changes
+  const rh=e.currentTarget;const el=rh.parentElement
   rh.setPointerCapture(e.pointerId)
   const onMove=me=>{
     const nd=clamp(snp(getHX(me.clientX)-bl.startHour),.25,24-bl.startHour)
-    if(isIdeal)S.ideal=S.ideal.map(b=>b.id!==id?b:{...b,duration:nd})
-    else{S.blocks=S.blocks.map(b=>b.id!==id?b:{...b,duration:nd});if(me.shiftKey)pushBlocks(id,bl.startHour,nd,di,bl.startHour)}
-    render();showDL(0,0,`→ ${fmt(bl.startHour+nd)} [${Math.round(nd*60)}m]`,{startHour:bl.startHour,duration:nd,day:bl.day||DAYS[todayIdx]})
+    if(isIdeal){const b=S.ideal.find(b=>b.id===id);if(b)b.duration=nd}
+    else{const b=S.blocks.find(b=>b.id===id);if(b){b.duration=nd;if(me.shiftKey)pushBlocks(id,bl.startHour,nd,di,bl.startHour)}}
+    el.style.width=Math.max(nd*hw(),26)+'px'
+    showDL(0,0,`→ ${fmt(bl.startHour+nd)} [${Math.round(nd*60)}m]`,{startHour:bl.startHour,duration:nd,day:bl.day||DAYS[todayIdx]})
   }
   const onUp=()=>{
-    rh.releasePointerCapture(e.pointerId)
+    try{rh.releasePointerCapture(e.pointerId)}catch{}
     rh.removeEventListener('pointermove',onMove);rh.removeEventListener('pointerup',onUp)
-    hideDL();pushUndo();save()
+    hideDL();save();render()
   }
   rh.addEventListener('pointermove',onMove);rh.addEventListener('pointerup',onUp)
+}
+
+function startResizeLeft(e,id,isIdeal,di,date){
+  e.stopPropagation();e.preventDefault()
+  const arr=isIdeal?S.ideal:S.blocks;const bl=arr.find(b=>b.id===id);if(!bl)return
+  pushUndo()  // capture state before any changes
+  const lh=e.currentTarget;const el=lh.parentElement
+  lh.setPointerCapture(e.pointerId)
+  const origEnd=bl.startHour+bl.duration
+  const onMove=me=>{
+    const newStart=clamp(snp(getHX(me.clientX)),0,origEnd-.25)
+    const newDur=origEnd-newStart
+    if(isIdeal){const b=S.ideal.find(b=>b.id===id);if(b){b.startHour=newStart;b.duration=newDur}}
+    else{const b=S.blocks.find(b=>b.id===id);if(b){b.startHour=newStart;b.duration=newDur}}
+    el.style.left=newStart*hw()+'px'
+    el.style.width=Math.max(newDur*hw(),26)+'px'
+    showDL(0,0,`${fmt(newStart)} → [${Math.round(newDur*60)}m]`,{startHour:newStart,duration:newDur,day:bl.day||DAYS[todayIdx]})
+  }
+  const onUp=()=>{
+    try{lh.releasePointerCapture(e.pointerId)}catch{}
+    lh.removeEventListener('pointermove',onMove);lh.removeEventListener('pointerup',onUp)
+    hideDL();save();render()
+  }
+  lh.addEventListener('pointermove',onMove);lh.addEventListener('pointerup',onUp)
+}
+
+// Ideal block edit popup — simple delete + category change
+function openIdealEdit(id,cx,cy){
+  const bl=S.ideal.find(b=>b.id===id);if(!bl)return
+  editingId=id
+  const cat=cats()[bl.category]||{emoji:'?',color:'#888'}
+  document.getElementById('eddot').style.background=cat.color
+  document.getElementById('stval').value=fmt(bl.startHour)
+  document.getElementById('endval').value=fmt(bl.startHour+bl.duration)
+  document.getElementById('eddur').textContent=Math.round(bl.duration*60)+'m total'
+  // Rewire delete for ideal
+  document.getElementById('eddel').onclick=()=>{pushUndo();S.ideal=S.ideal.filter(b=>b.id!==id);save();closeEdit();render()}
+  // Category grid
+  const cg=document.getElementById('edcats');cg.innerHTML=''
+  Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
+    const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
+    if(name===bl.category){b.style.background=rgba(color,.18);b.style.borderColor=color;b.style.color=color}
+    b.onmouseenter=()=>{if(name!==bl.category){b.style.background=rgba(color,.12);b.style.borderColor=color;b.style.color=color}}
+    b.onmouseleave=()=>{if(name!==bl.category){b.style.background='';b.style.borderColor='';b.style.color=''}}
+    b.onclick=()=>{pushUndo();S.ideal=S.ideal.map(b2=>b2.id!==id?b2:{...b2,category:name});save();closeEdit();render()}
+    cg.appendChild(b)
+  })
+  // Rewire time nudges for ideal
+  document.getElementById('stdec').onclick=e=>{editIdealTime(id,'s',-(e.shiftKey?.5:1/12))}
+  document.getElementById('stinc').onclick=e=>{editIdealTime(id,'s',+(e.shiftKey?.5:1/12))}
+  document.getElementById('endec').onclick=e=>{editIdealTime(id,'e',-(e.shiftKey?.5:1/12))}
+  document.getElementById('eninc').onclick=e=>{editIdealTime(id,'e',+(e.shiftKey?.5:1/12))}
+  // Position
+  const pp=document.getElementById('edpp')
+  const isMob=window.innerWidth<=640
+  if(isMob){pp.classList.add('sheet')}
+  else{
+    pp.classList.remove('sheet')
+    const pw=240,ph=400,pad=8
+    let l=cx-pw/2,t=cy-ph-10
+    if(t<pad)t=cy+20
+    if(l<pad)l=pad
+    if(l+pw>window.innerWidth-pad)l=window.innerWidth-pw-pad
+    pp.style.left=l+'px';pp.style.top=t+'px';pp.style.width=pw+'px'
+  }
+  document.getElementById('edbd').classList.add('vis');document.getElementById('edpp').classList.add('vis');cd=Date.now()
+}
+function editIdealTime(id,f,delta){
+  const bl=S.ideal.find(b=>b.id===id);if(!bl)return
+  pushUndo()
+  if(f==='s')S.ideal=S.ideal.map(b=>b.id!==id?b:{...b,startHour:clamp(snp5(bl.startHour+delta),0,24-bl.duration)})
+  else S.ideal=S.ideal.map(b=>b.id!==id?b:{...b,duration:clamp(snp5(bl.duration+delta),.0833,24-bl.startHour)})
+  save();const ubl=S.ideal.find(b=>b.id===id)
+  if(ubl){document.getElementById('stval').value=fmt(ubl.startHour);document.getElementById('endval').value=fmt(ubl.startHour+ubl.duration);document.getElementById('eddur').textContent=Math.round(ubl.duration*60)+'m total'}
+  render()
 }
 
 let ptrs=new Set(),ppos=new Map(),drawSt=null,dpEl=null,hgEl=null
 
 function attachRow(row,day,canEdit,H,bT,bB,isToday,date,di){
+  // Middle mouse scroll on row
   row.addEventListener('pointerdown',e=>{
+    if(e.button===1){
+      e.preventDefault();e.stopPropagation()
+      const gw=document.getElementById('gw')
+      let sx=e.clientX,sy=e.clientY,scrollX=gw.scrollLeft,scrollY=gw.scrollTop
+      row.setPointerCapture(e.pointerId)
+      const mm=me=>{gw.scrollLeft=scrollX+(sx-me.clientX);gw.scrollTop=scrollY+(sy-me.clientY)}
+      const mu=()=>{try{row.releasePointerCapture(e.pointerId)}catch{};row.removeEventListener('pointermove',mm);row.removeEventListener('pointerup',mu)}
+      row.addEventListener('pointermove',mm);row.addEventListener('pointerup',mu)
+      return
+    }
     if(e.target.closest('[data-block]')||e.target.closest('[data-resize]'))return
     if(ctrlDown)return  // ctrl mode: only ghost clicks work
     e.preventDefault()
@@ -1135,13 +1356,19 @@ function openEdit(id,cx,cy){
   const bl=S.blocks.find(b=>b.id===id);if(!bl)return;editingId=id
   const cat=cats()[bl.category]||{emoji:'?',color:'#888'}
   document.getElementById('eddot').style.background=cat.color;updET(bl)
+  // Rewire delete + nudge back to normal block mode
+  document.getElementById('eddel').onclick=()=>{pushUndo();S.blocks=S.blocks.filter(b=>b.id!==editingId);save();closeEdit();render()}
+  document.getElementById('stdec').onclick=e=>editTime('s',-(e.shiftKey?.5:1/12))
+  document.getElementById('stinc').onclick=e=>editTime('s',+(e.shiftKey?.5:1/12))
+  document.getElementById('endec').onclick=e=>editTime('e',-(e.shiftKey?.5:1/12))
+  document.getElementById('eninc').onclick=e=>editTime('e',+(e.shiftKey?.5:1/12))
   const cg=document.getElementById('edcats');cg.innerHTML=''
   Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
     const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
     if(name===bl.category){b.style.background=rgba(color,.18);b.style.borderColor=color;b.style.color=color}
     b.onmouseenter=()=>{if(name!==bl.category){b.style.background=rgba(color,.12);b.style.borderColor=color;b.style.color=color}}
     b.onmouseleave=()=>{if(name!==bl.category){b.style.background='';b.style.borderColor='';b.style.color=''}}
-    b.onclick=()=>{S.blocks=S.blocks.map(b2=>b2.id!==id?b2:{...b2,category:name});save();closeEdit();render()}
+    b.onclick=()=>{pushUndo();S.blocks=S.blocks.map(b2=>b2.id!==id?b2:{...b2,category:name});save();closeEdit();render()}
     cg.appendChild(b)
   })
   // Position popup smartly
@@ -1167,6 +1394,7 @@ function updET(bl){
 }
 function editTime(f,delta){
   const bl=S.blocks.find(b=>b.id===editingId);if(!bl)return
+  pushUndo()
   if(f==='s')S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,startHour:clamp(snp5(bl.startHour+delta),0,24-bl.duration)})
   else S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,duration:clamp(snp5(bl.duration+delta),.0833,24-bl.startHour)})
   save();updET(S.blocks.find(b=>b.id===editingId));render()
