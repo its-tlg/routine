@@ -361,14 +361,15 @@ if(auth){
         document.getElementById('autherr').textContent = 'Access denied — this app is private.'
         return
       }
-      if(authInitialized && dbRef) return  // already initialized, skip
+      // Skip if already fully initialized for this user
+      if(authInitialized && dbRef && dbRef.toString().includes(user.uid)) return
       authInitialized = true
       dbRef = db.ref('users/' + user.uid + '/data')
       document.getElementById('sync-screen').style.display = 'none'
       document.getElementById('app').classList.add('vis')
       loadAndStart()
     } else {
-      if(!authInitialized) return  // initial state, not a sign-out
+      // User signed out — reset everything
       document.getElementById('sync-screen').style.display = ''
       document.getElementById('app').classList.remove('vis')
       dbRef = null
