@@ -98,12 +98,44 @@ button,input{font-family:'Outfit',sans-serif}
 .ideal-panel-lbl{flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:linear-gradient(180deg,rgba(124,58,237,.08),rgba(124,58,237,.04));position:sticky;left:0;z-index:10;border-right:1px solid rgba(124,58,237,.2)}
 .ideal-panel-grid{position:relative;flex-shrink:0;background:rgba(124,58,237,.03)}
 
-.rh{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;touch-action:none;opacity:0;transition:opacity .15s}
+.rh{position:absolute;top:0;bottom:0;width:10px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;touch-action:none;opacity:0;transition:opacity .15s}
 .rh.rh-right{right:0}.rh.rh-left{left:0}
-.rh::after{content:'';width:2.5px;height:14px;border-radius:2px;background:currentColor;opacity:.5;transition:opacity .15s,height .15s}
-.block:hover .rh{opacity:.5}
+.rh::after{content:'';width:4px;height:60%;min-height:14px;border-radius:3px;background:currentColor;opacity:.45;transition:opacity .15s,height .15s}
+.block:hover .rh{opacity:.6}
 .block:hover .rh:hover{opacity:1}
-.block:hover .rh:hover::after{height:22px;opacity:.8}
+.block:hover .rh:hover::after{opacity:.9}
+.block.ctrl-del{cursor:pointer!important;position:relative}
+.block.ctrl-del::after{content:'✕';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#F43F5E;background:rgba(244,63,94,.15);border-radius:9px;z-index:2}
+
+/* In-progress block animation */
+@keyframes ipFlow{
+  0%{background-position:0% 50%}
+  100%{background-position:200% 50%}
+}
+.block.in-progress{
+  overflow:hidden;
+  border-width:2px!important;
+}
+.block.in-progress .ip-shine{
+  position:absolute;inset:0;border-radius:8px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.12) 25%,rgba(255,255,255,.22) 50%,rgba(255,255,255,.12) 75%,transparent 100%);
+  background-size:200% 100%;
+  animation:ipFlow 2.5s linear infinite;
+}
+@media(prefers-color-scheme:dark){
+  .block.in-progress .ip-shine{
+    background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.06) 25%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.06) 75%,transparent 100%);
+    background-size:200% 100%;
+  }
+}
+.ip-badge{
+  font-size:7px;font-weight:800;letter-spacing:.5px;
+  padding:1.5px 5px;border-radius:5px;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:3px;
+  margin-top:1px;
+}
+.ip-dot{width:5px;height:5px;border-radius:50%;animation:ipDot 1.2s ease infinite}
+@keyframes ipDot{0%,100%{opacity:1}50%{opacity:.3}}
 .ghost{position:absolute;border-radius:9px;display:flex;align-items:center;padding:0 6px;border:2px dashed;opacity:.35;pointer-events:none;overflow:hidden}
 .ghost.ctrl-ghost{opacity:.7;pointer-events:auto;cursor:pointer;border-style:solid;transition:opacity .15s,transform .15s}
 .ghost.ctrl-ghost:hover{opacity:1;transform:scaleY(1.04)}
@@ -247,7 +279,10 @@ button,input{font-family:'Outfit',sans-serif}
         </div>
       </div>
     </div>
-    <div style="text-align:center;font-size:8px;color:var(--mt);margin-top:4px" id="eddur"></div>
+    <div style="text-align:center;margin-top:4px">
+      <div style="font-size:8.5px;color:var(--mt);margin-bottom:2px">Duration</div>
+      <input class="time-inp" id="eddur" style="width:50px" title="Type duration in minutes">
+    </div>
   </div>
   <div style="font-size:8.5px;font-weight:700;color:var(--mt);letter-spacing:.5px;margin-bottom:4px">CATEGORY</div>
   <div class="cg" id="edcats"></div>
@@ -287,6 +322,7 @@ if(typeof firebase !== 'undefined'){
   }
   firebase.initializeApp(firebaseConfig)
   auth = firebase.auth()
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
   db = firebase.database()
 } else {
   // No Firebase — auto-enter test mode
@@ -375,7 +411,7 @@ const REC=[{startHour:6.5,duration:.5,category:'Wake Up'},{startHour:7,duration:
 
 let _n=Date.now()
 const uid=()=>(_n++).toString(36)
-const snp=h=>Math.round(h*4)/4
+const snp=h=>Math.round(h*12)/12  // 5-min snap for dragging
 const snp5=h=>Math.round(h*12)/12  // 5-min snap
 const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v))
 const rgba=(hex,a)=>{if(!hex||hex.length<7)return`rgba(128,128,128,${a})`;return`rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${a})`}
@@ -666,7 +702,19 @@ function initUI(){
     S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,duration:dur})
     save();updET(S.blocks.find(b=>b.id===editingId));render()
   }
-  setInterval(()=>{const d=new Date();nowH=d.getHours()+d.getMinutes()/60;renderNow()},30000)
+  document.getElementById('eddur').onchange=e=>{
+    const bl=S.blocks.find(b=>b.id===editingId);if(!bl)return
+    const mins=parseInt(e.target.value);if(isNaN(mins)||mins<1){updET(bl);return}
+    pushUndo()
+    const dur=clamp(mins/60,.0833,24-bl.startHour)
+    S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,duration:dur})
+    save();updET(S.blocks.find(b=>b.id===editingId));render()
+  }
+  setInterval(()=>{const d=new Date();nowH=d.getHours()+d.getMinutes()/60;renderNow();
+    // Re-render if any in-progress blocks exist (to update elapsed timer)
+    const hasIP=S.blocks.some(b=>b.day===DAYS[todayIdx]&&(b.weekOf||getWeekKey(0))===todayDateStr&&b.startHour<=nowH&&(b.startHour+b.duration)>nowH)
+    if(hasIP)render()
+  },30000)
 }
 
 function updateWkLbl(){
@@ -740,8 +788,8 @@ function renderLeg(){
   lh.after(frag)
   const sp=leg.querySelector('[style*="flex:1"]')
   if(S.armed){const h=document.createElement('span');h.className='ah';h.textContent='⚡ Click timeline · Esc cancel';if(sp)sp.before(h);else leg.appendChild(h)}
-  // Show ctrl hint
-  if(ctrlDown){const h=document.createElement('span');h.className='ctrl-hint';h.textContent='⌃ Ctrl held — click any ghost to add it';if(sp)sp.before(h);else leg.appendChild(h)}
+  // Show ctrl delete hint
+  if(ctrlDown){const h=document.createElement('span');h.className='ctrl-hint';h.textContent='✕ Ctrl held — click any block to delete';if(sp)sp.before(h);else leg.appendChild(h)}
   // Sync Today checkbox visual with ctrl state
   const todayCb=document.getElementById('recToday')
   if(todayCb){
@@ -840,23 +888,15 @@ function renderGrid(){
 
     if(isToday){const nl=document.createElement('div');nl.className='nl';nl.id='nowline';nl.style.left=`${nowH*H}px`;row.appendChild(nl)}
 
-    // Recommended ghosts — show when checkbox active OR ctrl is held (today only for ctrl)
-    const showGhosts=S.showRec||(ctrlDown&&isToday)
+    // Recommended ghosts — show when checkbox active
+    const showGhosts=S.showRec
     if(showGhosts){
       S.ideal.forEach(b=>{
         const cat=cats()[b.category]||{emoji:'?',color:'#888'}
-        const isCtrl=ctrlDown&&isToday
         const g=document.createElement('div')
-        g.className='ghost'+(isCtrl?' ctrl-ghost':'')
+        g.className='ghost'
         g.style.cssText=`left:${b.startHour*H}px;width:${b.duration*H}px;top:${bT}px;bottom:${bB}px;border-color:${cat.color};color:${cat.color}`
         g.innerHTML=`<span style="font-size:9px">${cat.emoji}</span>${b.duration>=.75?`<span class="glt">${b.category}</span>`:''}`
-        if(isCtrl){
-          g.onclick=e=>{
-            e.stopPropagation()
-            S.blocks.push({id:uid(),day,weekOf:date,startHour:b.startHour,duration:b.duration,category:b.category})
-            save();playAddSound();render()
-          }
-        }
         row.appendChild(g)
       })
     }
@@ -1020,9 +1060,15 @@ function renderNow(){const H=hw();const nl=document.getElementById('nowline');if
 
 function mkBlock(bl,bT,bB,H,isIdeal,di,date){
   const c=cats()[bl.category]||{emoji:'?',color:'#888'},bw=bl.duration*H,dk=isDark()
-  const el=document.createElement('div');el.className='block';el.dataset.block='true';el.dataset.id=bl.id
-  el.style.cssText=`left:${bl.startHour*H}px;width:${Math.max(bw,26)}px;top:${bT}px;bottom:${bB}px;background:${rgba(c.color,dk?.28:.18)};border-color:${rgba(c.color,dk?.7:.45)};color:${c.color}${isIdeal?`;box-shadow:0 0 0 1px ${rgba('#F59E0B',.2)}`:''}`
-  // Scale font based on width — much bigger on PC
+  // Detect in-progress: today, block spans current time
+  const isIP=!isIdeal&&date===todayDateStr&&bl.startHour<=nowH&&(bl.startHour+bl.duration)>nowH
+  const el=document.createElement('div')
+  el.className='block'+(ctrlDown?' ctrl-del':'')+(isIP?' in-progress':'')
+  el.dataset.block='true';el.dataset.id=bl.id
+  const borderW=isIP?'2px':'1.5px'
+  el.style.cssText=`left:${bl.startHour*H}px;width:${Math.max(bw,26)}px;top:${bT}px;bottom:${bB}px;background:${rgba(c.color,dk?.32:.22)};border-color:${rgba(c.color,dk?.85:.6)};border-width:${borderW};border-style:solid;color:${c.color}${isIdeal?`;box-shadow:0 0 0 1px ${rgba('#F59E0B',.2)}`:''}`
+  // Add flowing shine overlay for in-progress
+  if(isIP){const shine=document.createElement('div');shine.className='ip-shine';el.appendChild(shine)}
   const isPC=window.innerWidth>640
   const nameFontSize = isPC ? (bw>=120?15:bw>=80?13:bw>=50?11:9) : (bw>=90?11:bw>=60?9.5:bw>=40?8:7)
   const timeFontSize = Math.max(7, nameFontSize - 2.5)
@@ -1032,27 +1078,44 @@ function mkBlock(bl,bT,bB,H,isIdeal,di,date){
   be.textContent=c.emoji;el.appendChild(be)
   if(bw>=28){
     const wrap=document.createElement('span');wrap.className='bl'
-    wrap.style.cssText=`display:flex;flex-direction:column;gap:0px;overflow:hidden;min-width:0`
+    wrap.style.cssText=`display:flex;flex-direction:column;gap:0px;overflow:hidden;min-width:0;position:relative;z-index:1`
     const nameEl=document.createElement('span')
     nameEl.style.cssText=`font-size:${nameFontSize}px;font-weight:700;line-height:1.15;word-break:break-word;overflow-wrap:break-word;white-space:normal;max-width:100%`
     nameEl.textContent=bl.category
     wrap.appendChild(nameEl)
     if(bw>=30){
+      const durMin=Math.round(bl.duration*60)
       const timeEl=document.createElement('span')
-      timeEl.style.cssText=`font-size:${timeFontSize}px;font-weight:500;opacity:0.75;white-space:nowrap;margin-top:1px`
-      timeEl.textContent=fmt(bl.startHour)
+      timeEl.style.cssText=`font-size:${timeFontSize}px;font-weight:500;opacity:0.7;white-space:nowrap;margin-top:1px`
+      timeEl.textContent=bw>=70?`${fmt(bl.startHour)}–${fmt(bl.startHour+bl.duration)} (${durMin}m)`:`${fmt(bl.startHour)} (${durMin}m)`
       wrap.appendChild(timeEl)
+    }
+    // In-progress badge with elapsed timer
+    if(isIP&&bw>=40){
+      const elapsed=Math.round((nowH-bl.startHour)*60)
+      const badge=document.createElement('span')
+      badge.className='ip-badge'
+      badge.style.cssText=`color:${c.color};background:${rgba(c.color,dk?.2:.12)}`
+      const eh=Math.floor(elapsed/60),em=elapsed%60
+      const elapsedStr=eh>0?`${eh}h ${em}m`:`${em}m`
+      badge.innerHTML=`<span class="ip-dot" style="background:${c.color}"></span> ${elapsedStr} elapsed`
+      wrap.appendChild(badge)
     }
     el.appendChild(wrap)
   }
-  // Left resize handle (only on wider blocks so narrow ones stay draggable)
   if(bw>=50){const lh=document.createElement('div');lh.className='rh rh-left';lh.dataset.resize='true';lh.onpointerdown=e=>startResizeLeft(e,bl.id,isIdeal,di,date);el.appendChild(lh)}
-  // Right resize handle
   const rh=document.createElement('div');rh.className='rh rh-right';rh.dataset.resize='true';rh.onpointerdown=e=>startResize(e,bl.id,isIdeal,di,date);el.appendChild(rh)
   if(!isIdeal){const mo=mealOff(bl);if(mo&&bw>=52){const m=document.createElement('div');m.className='mo';const late=mo.startsWith('+');m.style.cssText=`color:${late?'#EF4444':'#22C55E'};background:${late?rgba('#EF4444',.15):rgba('#22C55E',.15)}`;m.textContent=mo;el.appendChild(m)}}
   el.addEventListener('pointerdown',e=>{
     if(e.target.closest('.rh'))return
     if(e.button===1)return
+    // Ctrl+click = delete block
+    if(ctrlDown){
+      e.stopPropagation();e.preventDefault();pushUndo()
+      if(isIdeal){S.ideal=S.ideal.filter(b=>b.id!==bl.id)}
+      else{S.blocks=S.blocks.filter(b=>b.id!==bl.id)}
+      save();render();return
+    }
     if(S.armed&&!isIdeal){
       e.stopPropagation();e.preventDefault()
       pushUndo();S.blocks.push({id:uid(),day:bl.day,weekOf:bl.weekOf||getWeekKey(0),startHour:bl.startHour,duration:bl.duration,category:S.armed})
@@ -1224,7 +1287,7 @@ function openIdealEdit(id,cx,cy){
   document.getElementById('eddot').style.background=cat.color
   document.getElementById('stval').value=fmt(bl.startHour)
   document.getElementById('endval').value=fmt(bl.startHour+bl.duration)
-  document.getElementById('eddur').textContent=Math.round(bl.duration*60)+'m total'
+  document.getElementById('eddur').value=Math.round(bl.duration*60)+'m'
   // Rewire delete for ideal
   document.getElementById('eddel').onclick=()=>{pushUndo();S.ideal=S.ideal.filter(b=>b.id!==id);save();closeEdit();render()}
   // Category grid
@@ -1263,7 +1326,7 @@ function editIdealTime(id,f,delta){
   if(f==='s')S.ideal=S.ideal.map(b=>b.id!==id?b:{...b,startHour:clamp(snp5(bl.startHour+delta),0,24-bl.duration)})
   else S.ideal=S.ideal.map(b=>b.id!==id?b:{...b,duration:clamp(snp5(bl.duration+delta),.0833,24-bl.startHour)})
   save();const ubl=S.ideal.find(b=>b.id===id)
-  if(ubl){document.getElementById('stval').value=fmt(ubl.startHour);document.getElementById('endval').value=fmt(ubl.startHour+ubl.duration);document.getElementById('eddur').textContent=Math.round(ubl.duration*60)+'m total'}
+  if(ubl){document.getElementById('stval').value=fmt(ubl.startHour);document.getElementById('endval').value=fmt(ubl.startHour+ubl.duration);document.getElementById('eddur').value=Math.round(ubl.duration*60)+'m'}
   render()
 }
 
@@ -1341,16 +1404,26 @@ function openPicker(day,date,sh,dur,cx,cy){
   const p=document.getElementById('pkpp'),bd=document.getElementById('pkbd')
   document.getElementById('pktime').innerHTML=`<strong>${day}</strong> · ${fmt(sh)} → ${fmt(sh+dur)}${dur!==1?` <span style="margin-left:4px;color:#7C3AED;font-weight:700">${Math.round(dur*60)}m</span>`:''}`
   const cg=document.getElementById('pkcats');cg.innerHTML=''
-  Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
-    const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
-    b.onmouseenter=()=>{b.style.background=rgba(color,.14);b.style.borderColor=color;b.style.color=color}
-    b.onmouseleave=()=>{b.style.background='';b.style.borderColor='';b.style.color=''}
-    b.onclick=()=>{pushUndo();S.blocks.push({id:uid(),day,weekOf:date,startHour:sh,duration:dur,category:name});save();render();closePicker();playAddSound()}
-    cg.appendChild(b)
-  })
+  // Search box
+  const si=document.createElement('input');si.className='fi';si.placeholder='Search categories…';si.style.cssText='margin-bottom:5px;font-size:10px;padding:4px 7px'
+  cg.parentElement.insertBefore(si,cg)
+  function buildCats(filter){
+    cg.innerHTML=''
+    Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
+      if(filter&&!name.toLowerCase().includes(filter.toLowerCase()))return
+      const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
+      b.onmouseenter=()=>{b.style.background=rgba(color,.14);b.style.borderColor=color;b.style.color=color}
+      b.onmouseleave=()=>{b.style.background='';b.style.borderColor='';b.style.color=''}
+      b.onclick=()=>{pushUndo();S.blocks.push({id:uid(),day,weekOf:date,startHour:sh,duration:dur,category:name});save();render();closePicker();playAddSound()}
+      cg.appendChild(b)
+    })
+  }
+  buildCats('')
+  si.oninput=()=>buildCats(si.value)
   posPP(p,cx,cy,238,350);bd.classList.add('vis');p.classList.add('vis');cd=Date.now()
+  setTimeout(()=>si.focus(),50)
 }
-function closePicker(){document.getElementById('pkpp').classList.remove('vis');document.getElementById('pkbd').classList.remove('vis');cd=Date.now()}
+function closePicker(){document.getElementById('pkpp').classList.remove('vis');document.getElementById('pkbd').classList.remove('vis');const si=document.getElementById('pkpp').querySelector('.fi');if(si)si.remove();cd=Date.now()}
 
 function openEdit(id,cx,cy){
   const bl=S.blocks.find(b=>b.id===id);if(!bl)return;editingId=id
@@ -1363,14 +1436,24 @@ function openEdit(id,cx,cy){
   document.getElementById('endec').onclick=e=>editTime('e',-(e.shiftKey?.5:1/12))
   document.getElementById('eninc').onclick=e=>editTime('e',+(e.shiftKey?.5:1/12))
   const cg=document.getElementById('edcats');cg.innerHTML=''
-  Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
-    const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
-    if(name===bl.category){b.style.background=rgba(color,.18);b.style.borderColor=color;b.style.color=color}
-    b.onmouseenter=()=>{if(name!==bl.category){b.style.background=rgba(color,.12);b.style.borderColor=color;b.style.color=color}}
-    b.onmouseleave=()=>{if(name!==bl.category){b.style.background='';b.style.borderColor='';b.style.color=''}}
-    b.onclick=()=>{pushUndo();S.blocks=S.blocks.map(b2=>b2.id!==id?b2:{...b2,category:name});save();closeEdit();render()}
-    cg.appendChild(b)
-  })
+  // Remove old search if any
+  const oldSi=document.getElementById('edpp').querySelector('.cat-search');if(oldSi)oldSi.remove()
+  const si=document.createElement('input');si.className='fi cat-search';si.placeholder='Search categories…';si.style.cssText='margin-bottom:5px;font-size:10px;padding:4px 7px'
+  cg.parentElement.insertBefore(si,cg)
+  function buildEditCats(filter){
+    cg.innerHTML=''
+    Object.entries(orderedCats()).forEach(([name,{emoji,color}])=>{
+      if(filter&&!name.toLowerCase().includes(filter.toLowerCase()))return
+      const b=document.createElement('button');b.className='cb';b.innerHTML=`<span class="ci">${emoji}</span>${name}`
+      if(name===bl.category){b.style.background=rgba(color,.18);b.style.borderColor=color;b.style.color=color}
+      b.onmouseenter=()=>{if(name!==bl.category){b.style.background=rgba(color,.12);b.style.borderColor=color;b.style.color=color}}
+      b.onmouseleave=()=>{if(name!==bl.category){b.style.background='';b.style.borderColor='';b.style.color=''}}
+      b.onclick=()=>{pushUndo();S.blocks=S.blocks.map(b2=>b2.id!==id?b2:{...b2,category:name});save();closeEdit();render()}
+      cg.appendChild(b)
+    })
+  }
+  buildEditCats('')
+  si.oninput=()=>buildEditCats(si.value)
   // Position popup smartly
   const pp=document.getElementById('edpp')
   const isMob=window.innerWidth<=640
@@ -1390,7 +1473,7 @@ function updET(bl){
   if(!bl)return
   document.getElementById('stval').value=fmt(bl.startHour)
   document.getElementById('endval').value=fmt(bl.startHour+bl.duration)
-  document.getElementById('eddur').textContent=Math.round(bl.duration*60)+'m total'
+  document.getElementById('eddur').value=Math.round(bl.duration*60)+'m'
 }
 function editTime(f,delta){
   const bl=S.blocks.find(b=>b.id===editingId);if(!bl)return
@@ -1399,7 +1482,7 @@ function editTime(f,delta){
   else S.blocks=S.blocks.map(b=>b.id!==editingId?b:{...b,duration:clamp(snp5(bl.duration+delta),.0833,24-bl.startHour)})
   save();updET(S.blocks.find(b=>b.id===editingId));render()
 }
-function closeEdit(){document.getElementById('edpp').classList.remove('vis');document.getElementById('edbd').classList.remove('vis');editingId=null;cd=Date.now()}
+function closeEdit(){document.getElementById('edpp').classList.remove('vis');document.getElementById('edbd').classList.remove('vis');const si=document.getElementById('edpp').querySelector('.cat-search');if(si)si.remove();editingId=null;cd=Date.now()}
 
 function openCatList(){
   document.getElementById('cattitle').textContent='🗂 Categories';document.getElementById('catnewbtn').style.display='';document.getElementById('catlist').style.display='';document.getElementById('catform').style.display='none'
@@ -1434,7 +1517,16 @@ function updCatPrev(){const name=document.getElementById('catname').value.trim()
 function saveCatForm(){
   const t=document.getElementById('catname').value.trim();if(!t)return
   const emoji=document.getElementById('catemoji').value||'✨'
-  if(editCatKey&&editCatKey!==t&&!DCATS[editCatKey]){delete S.ccats[editCatKey];S.blocks=S.blocks.map(b=>b.category===editCatKey?{...b,category:t}:b)}
+  if(editCatKey&&editCatKey!==t){
+    // Rename: update all blocks and ideal blocks using old name
+    S.blocks=S.blocks.map(b=>b.category===editCatKey?{...b,category:t}:b)
+    S.ideal=S.ideal.map(b=>b.category===editCatKey?{...b,category:t}:b)
+    // Remove old custom entry if it exists
+    if(S.ccats[editCatKey]) delete S.ccats[editCatKey]
+  } else if(editCatKey===t){
+    // Same name, just updating emoji/color — update ideal blocks too
+    S.blocks=S.blocks.map(b=>b.category===t?b:b)  // no change needed for blocks (they reference by name)
+  }
   S.ccats[t]={emoji,color:catColor}
   save();render();document.getElementById('catmbg').classList.remove('vis')
 }
